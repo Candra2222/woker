@@ -1,6 +1,7 @@
 name = "result"
 main = "src/index.js"
 compatibility_date = "2026-07-01"
+workers_dev = true
 
 # SUPABASE_URL dan SUPABASE_SERVICE_KEY di-set via secret, BUKAN di file ini:
 #   wrangler secret put SUPABASE_URL
