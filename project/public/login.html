@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Login — Realtime Dashboard</title>
+<style>
+  :root { --bg:#0b0f19; --panel:#10162a; --border:#1f2740; --green:#2dd4a7; --text:#e6e9f2; --muted:#8b93a8; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text);
+  }
+  #box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 32px; width: 300px; text-align: center;
+  }
+  #box h1 { color: var(--green); font-size: 20px; margin-bottom: 4px; }
+  #box p { color: var(--muted); font-size: 13px; margin-top: 0; }
+  #box input {
+    width: 100%; padding: 10px 12px; margin: 16px 0; border-radius: 8px;
+    border: 1px solid var(--border); background: #0d1424; color: var(--text);
+  }
+  #box button {
+    width: 100%; padding: 10px; border-radius: 999px; border: none;
+    background: linear-gradient(90deg, #2dd4a7, #17a2b8); color: #04140f; font-weight: 700; cursor: pointer;
+  }
+  #box button:disabled { opacity: .6; cursor: not-allowed; }
+  #error { color: #ff6b6b; font-size: 12px; height: 16px; }
+</style>
+</head>
+<body>
+  <div id="box">
+    <h1>REALTIME DASHBOARD</h1>
+    <p>Masukan password</p>
+    <input id="password-input" type="password" placeholder="Enter Password" autofocus />
+    <div id="error"></div>
+    <button id="login-btn" onclick="tryLogin()">LOGIN →</button>
+  </div>
+
+<script>
+  async function tryLogin() {
+    const btn = document.getElementById("login-btn");
+    const errEl = document.getElementById("error");
+    const password = document.getElementById("password-input").value;
+
+    btn.disabled = true;
+    errEl.textContent = "";
+
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        window.location.href = "/"; // middleware sekarang akan meloloskan request ini
+      } else {
+        errEl.textContent = data.error || "Password salah";
+      }
+    } catch (e) {
+      errEl.textContent = "Gagal terhubung ke server";
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  document.getElementById("password-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") tryLogin();
+  });
+</script>
+</body>
+</html>

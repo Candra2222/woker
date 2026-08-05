@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Realtime Conversion Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/supabase-js/2.45.4/supabase.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0f19;
+    --panel: #10162a;
+    --border: #1f2740;
+    --green: #2dd4a7;
+    --text: #e6e9f2;
+    --muted: #8b93a8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  header .brand { color: var(--green); font-weight: 700; letter-spacing: .5px; font-size: 13px; }
+  header .logout-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--muted);
+    padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer;
+  }
+  header .logout-btn:hover { border-color: var(--muted); color: var(--text); }
+
+  .toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px 8px;
+  }
+  .toolbar h2 { margin: 0; font-size: 16px; }
+  .live-badge {
+    background: rgba(45,212,167,.15); color: var(--green);
+    font-size: 11px; padding: 2px 8px; border-radius: 999px; margin-left: 8px;
+  }
+  .total { font-size: 13px; color: var(--muted); }
+  .total b { color: var(--text); }
+
+  .tabs { display: flex; gap: 8px; padding: 0 16px 12px; }
+  .tabs button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 14px; border-radius: 999px; font-size: 12px; cursor: pointer;
+  }
+  .tabs button.active { background: var(--green); color: #04140f; border-color: var(--green); font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; color: var(--muted); font-weight: 500; font-size: 11px;
+    text-transform: uppercase; padding: 8px 16px; border-bottom: 1px solid var(--border);
+  }
+  tbody td { padding: 8px 16px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  tbody tr.new-row { animation: flash 1.2s ease; }
+  @keyframes flash { from { background: rgba(45,212,167,.25); } to { background: transparent; } }
+  .badge-network {
+    font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 700;
+  }
+  .badge-trafee { background: #3730a3; color: #c7d2fe; }
+  .badge-imonetizeit { background: #7c2d12; color: #fed7aa; }
+  .payout { color: var(--green); font-weight: 600; }
+
+  #toast-container {
+    position: fixed; bottom: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50;
+  }
+  .toast {
+    background: var(--panel); border: 1px solid var(--green); border-radius: 8px;
+    padding: 8px 12px; font-size: 12px; min-width: 200px; animation: slidein .3s ease;
+  }
+  @keyframes slidein { from { transform: translateX(30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+</style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">● YOUR TEAM</div>
+    <button class="logout-btn" onclick="logout()">Logout</button>
+  </header>
+
+  <div class="toolbar">
+    <h2>REALTIME CONVERSION <span class="live-badge">● LIVE</span></h2>
+    <div class="total">Total: <b id="total-payout">$0.00</b></div>
+  </div>
+
+  <div class="tabs" id="network-tabs">
+    <button class="active" data-network="all">All</button>
+    <button data-network="trafee">Trafee</button>
+    <button data-network="imonetizeit">iMonetizeIt</button>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>Network</th><th>Click ID</th><th>Country</th><th>Payout</th><th>IP</th><th>Time</th>
+      </tr>
+    </thead>
+    <tbody id="conversion-rows"></tbody>
+  </table>
+
+  <div id="toast-container"></div>
+
+<script>
+  // ================= CONFIG =================
+  // Ini AMAN dipakai di frontend: anon key hanya bisa READ, dibatasi RLS policy
+  // "Public read access" di Supabase. Password dashboard TIDAK ADA di sini lagi —
+  // sudah dipindah ke server (functions/api/login.js), dicek sebelum halaman ini
+  // sempat dikirim ke browser (lihat functions/_middleware.js).
+  const SUPABASE_URL = "https://lgbebnyzlgawauvyfjub.supabase.co";
+  const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxnYmVibnl6bGdhd2F1dnlmanViIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU5NTA1ODAsImV4cCI6MjEwMTUyNjU4MH0.lZpf5XyC1GGxreTOpEYvk1gdZBIJI0XiFUWXMRbKjW0";
+
+  const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let currentFilter = "all";
+  let totalPayout = 0;
+
+  async function logout() {
+    await fetch("/api/logout", { method: "POST" });
+    window.location.href = "/login.html";
+  }
+
+  function fmtMoney(n) { return "$" + Number(n).toFixed(2); }
+
+  function addRow(row, isNew) {
+    const tbody = document.getElementById("conversion-rows");
+    const tr = document.createElement("tr");
+    if (isNew) tr.className = "new-row";
+    tr.innerHTML = `
+      <td>${tbody.children.length + 1}</td>
+      <td><span class="badge-network badge-${row.network}">${row.network.toUpperCase()}</span></td>
+      <td>${row.click_id ?? "-"}</td>
+      <td>${row.country ?? "-"}</td>
+      <td class="payout">${fmtMoney(row.payout)}</td>
+      <td>${row.ip ?? "-"}</td>
+      <td>${new Date(row.created_at).toLocaleTimeString()}</td>
+    `;
+    tbody.prepend(tr);
+  }
+
+  function showToast(row) {
+    const container = document.getElementById("toast-container");
+    const div = document.createElement("div");
+    div.className = "toast";
+    div.innerHTML = `<b>${row.network.toUpperCase()}</b> — ${row.click_id} <span class="payout">${fmtMoney(row.payout)}</span>`;
+    container.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+  }
+
+  async function loadInitial() {
+    document.getElementById("conversion-rows").innerHTML = "";
+    totalPayout = 0;
+    let query = supabaseClient
+      .from("conversions")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (currentFilter !== "all") query = query.eq("network", currentFilter);
+
+    const { data, error } = await query;
+    if (error) { console.error(error); return; }
+
+    data.reverse().forEach((row) => {
+      addRow(row, false);
+      totalPayout += Number(row.payout || 0);
+    });
+    document.getElementById("total-payout").textContent = fmtMoney(totalPayout);
+  }
+
+  function subscribeRealtime() {
+    supabaseClient
+      .channel("conversions-realtime")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "conversions" },
+        (payload) => {
+          const row = payload.new;
+          if (currentFilter !== "all" && row.network !== currentFilter) return;
+          addRow(row, true);
+          showToast(row);
+          totalPayout += Number(row.payout || 0);
+          document.getElementById("total-payout").textContent = fmtMoney(totalPayout);
+        }
+      )
+      .subscribe();
+  }
+
+  function initTabs() {
+    document.querySelectorAll("#network-tabs button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("#network-tabs button").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentFilter = btn.dataset.network;
+        loadInitial();
+      });
+    });
+  }
+
+  initTabs();
+  loadInitial();
+  subscribeRealtime();
+</script>
+</body>
+</html>
